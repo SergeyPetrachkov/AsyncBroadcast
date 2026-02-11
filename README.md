@@ -74,7 +74,18 @@ Task {
 }
 ```
 
-or more iOS friendly:
+Expected output (order may vary between A and B but values are identical):
+
+```
+A got 1
+B got 1
+A got 2
+B got 2
+A got 3
+B got 3
+```
+
+or more iOS friendly sample:
 
 ```swift
     enum AppEvent: Sendable {
@@ -154,17 +165,6 @@ or more iOS friendly:
     let loggerVM = LoggerViewModel(service: service)
 
     service.startEmitting()
-```
-
-Expected output (order may vary between A and B but values are identical):
-
-```
-A got 1
-B got 1
-A got 2
-B got 2
-A got 3
-B got 3
 ```
 
 ### 2) Independent subscriber lifetimes
