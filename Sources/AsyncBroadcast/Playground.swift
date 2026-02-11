@@ -79,3 +79,84 @@ import Foundation
     channel.send(3)
     channel.send(4)
 }
+
+#Playground("ViewModel") {
+
+    enum AppEvent: Sendable {
+        case message(String)
+    }
+
+    final class EventService: Sendable {
+        let events = AsyncBroadcast<AppEvent>()
+
+        func startEmitting() {
+            Task.detached {
+                for i in 1...5 {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    self.events.send(.message("event-\(i)"))
+                }
+                self.events.finish()
+            }
+        }
+    }
+
+    @MainActor
+    final class FeedViewModel: ObservableObject {
+        @Published var messages: [String] = []
+        private let service: EventService
+        private var task: Task<Void, Never>?
+
+        init(service: EventService) {
+            self.service = service
+            subscribe()
+        }
+
+        private func subscribe() {
+            let stream = service.events.makeStream()
+            task = Task { [weak self] in
+                for await event in stream {
+                    if case let .message(text) = event {
+                        self?.messages.append("Feed: \(text)")
+                    }
+                }
+            }
+        }
+
+        deinit {
+            task?.cancel()
+        }
+    }
+
+    @MainActor
+    final class LoggerViewModel: ObservableObject {
+        @Published var logs: [String] = []
+        private let service: EventService
+        private var task: Task<Void, Never>?
+
+        init(service: EventService) {
+            self.service = service
+            subscribe()
+        }
+
+        private func subscribe() {
+            let stream = service.events.makeStream()
+            task = Task { [weak self] in
+                for await event in stream {
+                    if case let .message(text) = event {
+                        self?.logs.append("Log: \(text)")
+                    }
+                }
+            }
+        }
+
+        deinit {
+            task?.cancel()
+        }
+    }
+
+    let service = EventService()
+    let feedVM = FeedViewModel(service: service)
+    let loggerVM = LoggerViewModel(service: service)
+
+    service.startEmitting()
+}

@@ -3,7 +3,7 @@ import Foundation
 /// A lightweight 1-to-N broadcast channel for Swift Concurrency.
 ///
 /// Each call to `makeStream()` creates a new subscriber that receives every
-/// value sent after subscription. The channel is thread-safe..
+/// value sent after subscription. The channel is thread-safe.
 public final class AsyncBroadcast<Element: Sendable>: Sendable {
     private struct StateData: Sendable {
         var continuations: [UUID: AsyncStream<Element>.Continuation]
@@ -26,6 +26,8 @@ public final class AsyncBroadcast<Element: Sendable>: Sendable {
     }
 
     /// Creates a new subscriber stream.
+    ///
+    /// If the caller task is already cancelled, the stream is finished immediately.
     public func makeStream(
         bufferingPolicy: AsyncStream<Element>.Continuation.BufferingPolicy? = nil
     ) -> AsyncStream<Element> {
@@ -36,7 +38,7 @@ public final class AsyncBroadcast<Element: Sendable>: Sendable {
             continuation.finish()
             return stream
         }
-        let shouldFinish = storage.write { state in
+        let shouldFinish = storage.withCriticalRegion { state in
             if state.isFinished {
                 return true
             }
@@ -48,7 +50,7 @@ public final class AsyncBroadcast<Element: Sendable>: Sendable {
             return stream
         }
         continuation.onTermination = { [weak self] a in
-            self?.storage.write { state in
+            self?.storage.withCriticalRegion { state in
                 state.continuations.removeValue(forKey: id)
             }
         }
@@ -58,7 +60,7 @@ public final class AsyncBroadcast<Element: Sendable>: Sendable {
 
     /// Broadcasts a value to all current subscribers.
     public func send(_ value: Element) {
-        let snapshot = storage.read { state in
+        let snapshot = storage.withCriticalRegion { state in
             state.isFinished ? [:] : state.continuations
         }
         guard !snapshot.isEmpty else { return }
@@ -71,7 +73,7 @@ public final class AsyncBroadcast<Element: Sendable>: Sendable {
         }
 
         if !terminated.isEmpty {
-            storage.write { state in
+            storage.withCriticalRegion { state in
                 for id in terminated {
                     state.continuations.removeValue(forKey: id)
                 }
@@ -83,7 +85,7 @@ public final class AsyncBroadcast<Element: Sendable>: Sendable {
     public func finish() {
         // We take a snapshot first so we can release the lock and then finish each stream outside the critical section.
         // That avoids holding the lock while running user code and ensures every subscriber is actually completed.
-        let continuations = storage.write { state -> [AsyncStream<Element>.Continuation] in
+        let continuations = storage.withCriticalRegion { state -> [AsyncStream<Element>.Continuation] in
             if state.isFinished {
                 return []
             }
